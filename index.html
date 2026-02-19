@@ -54,6 +54,20 @@ canvas {
   display: block;
   touch-action: none;
 }
+.refresh-btn {
+  margin: 10px;
+  padding: 6px 12px;
+  background-color: #fff;
+  color: #333;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.refresh-btn:hover {
+  background-color: #ddd;
+}
 </style>
 </head>
 <body>
@@ -89,6 +103,7 @@ canvas {
   <button onclick="nextPage()">▶</button>
   <button onclick="saveImage()">Save Image</button>
   <button onclick="savePDF()">Save PDF</button>
+<button onclick="refreshPage()" class="refresh-btn">🔄 Refresh</button>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -334,6 +349,11 @@ canvas.addEventListener("pointermove", draw);
 canvas.addEventListener("pointerup", endDraw);
 canvas.addEventListener("pointercancel", endDraw);
 
+</script>
+<script>
+function refreshPage() {
+  location.reload();
+}
 </script>
 </body>
 </html>
