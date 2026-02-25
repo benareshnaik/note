@@ -4,13 +4,9 @@
 <meta charset="UTF-8">
 <title>Easy Note</title>
 
-<link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#0d6efd">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <meta
-    name="description"
-    content="In a world full of noise, Easy Note, brings you only what truly matters, clearly, accurately, and without unnecessary clutter."/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d6efd">
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
@@ -19,7 +15,6 @@ body {
   overflow: hidden;
   font-family: sans-serif;
   user-select: none;
-  -webkit-user-select: none;
   background: #fdfcf8;
 }
 
@@ -54,29 +49,10 @@ canvas {
   display: block;
   touch-action: none;
 }
-.refresh-btn {
-  margin: 10px;
-  padding: 6px 12px;
-  background-color: #fff;
-  color: #333;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.refresh-btn:hover {
-  background-color: #ddd;
-}
 </style>
 </head>
+
 <body>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js')
-        .then(() => console.log("Service Worker Registered"));
-    }
-  </script>
 
 <button class="floating-btn" onclick="toggleToolbar()">☰</button>
 
@@ -103,7 +79,6 @@ canvas {
   <button onclick="nextPage()">▶</button>
   <button onclick="saveImage()">Save Image</button>
   <button onclick="savePDF()">Save PDF</button>
-<button onclick="refreshPage()" class="refresh-btn">🔄 Refresh</button>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -112,6 +87,9 @@ canvas {
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = "high";
+
 let ratio = window.devicePixelRatio || 1;
 let drawing = false;
 let currentPath = [];
@@ -119,11 +97,9 @@ let pages = [[]];
 let redoStack = [[]];
 let currentPage = 0;
 
-let scale = 0.5;
+let scale = 1;
 let originX = 0;
 let originY = 0;
-let lastDistance = 0;
-let isPanning = false;
 
 /* ---------- PAPER TEXTURE ---------- */
 let paperPattern;
@@ -162,6 +138,9 @@ function resizeCanvas() {
   canvas.width = w * ratio;
   canvas.height = h * ratio;
 
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(ratio, ratio);
+
   redraw();
 }
 
@@ -174,11 +153,29 @@ function toggleToolbar() {
   tb.style.display = tb.style.display === "flex" ? "none" : "flex";
 }
 
-/* ---------- DRAWING ---------- */
+/* ---------- ADD POINT WITH JITTER FILTER ---------- */
+function addPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+
+  let x = (e.clientX - rect.left - originX) / scale;
+  let y = (e.clientY - rect.top - originY) / scale;
+
+  let pressure = e.pressure;
+  if (!pressure || pressure === 0) pressure = 0.5;
+
+  if (currentPath.length > 0) {
+    const last = currentPath[currentPath.length - 1];
+    const dx = last.x - x;
+    const dy = last.y - y;
+    if (dx * dx + dy * dy < 0.3) return;
+  }
+
+  currentPath.push({ x, y, pressure });
+}
+
+/* ---------- DRAW ---------- */
 function startDraw(e) {
-  if (e.touches && e.touches.length > 1) return;
   drawing = true;
-  canvas.setPointerCapture(e.pointerId);
   currentPath = [];
   addPoint(e);
 }
@@ -186,37 +183,52 @@ function startDraw(e) {
 function draw(e) {
   if (!drawing) return;
 
-  addPoint(e);
-  let p = currentPath[currentPath.length - 1];
-  let prev = currentPath[currentPath.length - 2];
-  if (!prev) return;
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
 
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+  for (let ev of events) {
+    addPoint(ev);
 
-  if (tool.value === "eraser") {
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.lineWidth = presetSize.value * 3;
-  } else {
-    ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = color.value;
+    if (currentPath.length < 2) continue;
 
-    if (tool.value === "highlighter") {
-      ctx.globalAlpha = 0.25;
+    const p1 = currentPath[currentPath.length - 2];
+    const p2 = currentPath[currentPath.length - 1];
+
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (tool.value === "eraser") {
+      ctx.globalCompositeOperation = "destination-out";
       ctx.lineWidth = presetSize.value * 3;
-    } else if (tool.value === "pen") {
-      ctx.globalAlpha = 1;
-      ctx.lineWidth = presetSize.value * (0.5 + p.pressure * 1.5);
-    } else if (tool.value === "pencil") {
-      ctx.globalAlpha = 0.6 + p.pressure * 0.4;
-      ctx.lineWidth = presetSize.value * (0.3 + p.pressure * 1.2);
-    }
-  }
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = color.value;
 
-  ctx.beginPath();
-  ctx.moveTo(prev.x, prev.y);
-  ctx.lineTo(p.x, p.y);
-  ctx.stroke();
+      if (tool.value === "highlighter") {
+        ctx.globalAlpha = 0.25;
+        ctx.lineWidth = presetSize.value * 3;
+      } else if (tool.value === "pen") {
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = Math.max(
+          0.5,
+          presetSize.value * (0.5 + p2.pressure * 1.5)
+        );
+      } else if (tool.value === "pencil") {
+        ctx.globalAlpha = 0.6 + p2.pressure * 0.4;
+        ctx.lineWidth = Math.max(
+          0.3,
+          presetSize.value * (0.3 + p2.pressure * 1.2)
+        );
+      }
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
+    ctx.stroke();
+  }
 }
 
 function endDraw() {
@@ -235,33 +247,26 @@ function endDraw() {
   ctx.globalCompositeOperation = "source-over";
 }
 
-function addPoint(e) {
-  const rect = canvas.getBoundingClientRect();
-  let pressure = e.pressure;
-  if (!pressure || pressure === 0) pressure = 0.5;
-
-  currentPath.push({
-    x: (e.clientX - rect.left - originX) / scale,
-    y: (e.clientY - rect.top - originY) / scale,
-    pressure: pressure
-  });
-}
-
 /* ---------- REDRAW ---------- */
 function redraw() {
-  ctx.setTransform(ratio * scale, 0, 0, ratio * scale, originX * ratio, originY * ratio);
-  ctx.clearRect(-originX, -originY, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.scale(ratio, ratio);
 
   ctx.fillStyle = paperPattern;
-  ctx.fillRect(-originX, -originY, canvas.width / ratio / scale, canvas.height / ratio / scale);
+  ctx.fillRect(0, 0, canvas.width / ratio, canvas.height / ratio);
 
   pages[currentPage].forEach(path => {
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
     for (let i = 1; i < path.points.length; i++) {
-      let prev = path.points[i - 1];
-      let curr = path.points[i];
+      const p1 = path.points[i - 1];
+      const p2 = path.points[i];
+
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
       if (path.tool === "eraser") {
         ctx.globalCompositeOperation = "destination-out";
@@ -275,47 +280,30 @@ function redraw() {
           ctx.lineWidth = path.size * 3;
         } else if (path.tool === "pen") {
           ctx.globalAlpha = 1;
-          ctx.lineWidth = path.size * (0.5 + (curr.pressure || 0.5) * 1.5);
+          ctx.lineWidth = Math.max(
+            0.5,
+            path.size * (0.5 + (p2.pressure || 0.5) * 1.5)
+          );
         } else if (path.tool === "pencil") {
-          ctx.globalAlpha = 0.6 + (curr.pressure || 0.5) * 0.4;
-          ctx.lineWidth = path.size * (0.3 + (curr.pressure || 0.5) * 1.2);
+          ctx.globalAlpha = 0.6 + (p2.pressure || 0.5) * 0.4;
+          ctx.lineWidth = Math.max(
+            0.3,
+            path.size * (0.3 + (p2.pressure || 0.5) * 1.2)
+          );
         }
       }
 
       ctx.beginPath();
-      ctx.moveTo(prev.x, prev.y);
-      ctx.lineTo(curr.x, curr.y);
+      ctx.moveTo(p1.x, p1.y);
+      ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
       ctx.stroke();
     }
   });
 
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
+  ctx.restore();
 }
 
-/* ---------- ZOOM ---------- */
-canvas.addEventListener("touchstart", e => {
-  if (e.touches.length === 2) {
-    drawing = false;
-    isPanning = false;
-  }
-  if (e.touches.length === 3) {
-  drawing = false;
-  isPanning = false;
-}
-if (e.touches.length === 4) {
-  drawing = false;
-  isPanning = false;
-}
-
-if (e.touches.length === 5) {
-  drawing = false;
-  isPanning = false;
-}
-
-});
-
-/* ---------- PAGE ---------- */
+/* ---------- PAGE CONTROLS ---------- */
 function addPage() { pages.push([]); redoStack.push([]); currentPage = pages.length - 1; redraw(); }
 function prevPage() { if (currentPage > 0) { currentPage--; redraw(); } }
 function nextPage() { if (currentPage < pages.length - 1) { currentPage++; redraw(); } }
@@ -333,13 +321,8 @@ function saveImage() {
 async function savePDF() {
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit: "px", format: [canvas.width / ratio, canvas.height / ratio] });
-
-  pages.forEach((page, i) => {
-    if (i > 0) pdf.addPage();
-    const img = canvas.toDataURL("image/png", 1.0);
-    pdf.addImage(img, "PNG", 0, 0, canvas.width / ratio, canvas.height / ratio);
-  });
-
+  const img = canvas.toDataURL("image/png", 1.0);
+  pdf.addImage(img, "PNG", 0, 0, canvas.width / ratio, canvas.height / ratio);
   pdf.save("drawing.pdf");
 }
 
@@ -350,11 +333,6 @@ canvas.addEventListener("pointerup", endDraw);
 canvas.addEventListener("pointercancel", endDraw);
 
 </script>
-<script>
-function refreshPage() {
-  location.reload();
-}
-</script>
-</body>
 
+</body>
 </html>
