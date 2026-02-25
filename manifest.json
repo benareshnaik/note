@@ -1,6 +1,6 @@
 {
-  "name": "The Essential Dose",
-  "short_name": "TED",
+  "name": "Easy Note",
+  "short_name": "Easy Note",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -18,3 +18,4 @@
     }
   ]
 }
+
